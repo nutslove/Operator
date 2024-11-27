@@ -1,1 +1,2 @@
-# Operator
+# 目的
+- Operatorについて学習し、実際にOperatorを作ってみる

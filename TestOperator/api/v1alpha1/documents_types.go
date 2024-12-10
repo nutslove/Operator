@@ -28,14 +28,40 @@ type DocumentsSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of Documents. Edit documents_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Gitリポジトリ(owner/repo形式)
+	Repo string `json:"repo,omitempty"`
+	// 監視対象のブランチ(デフォルト: main等)
+	Branch string `json:"branch,omitempty"`
+
+	// 複数の特定ファイルを監視したい場合はここで指定
+	// 例: ["docs/file1.md", "docs/file2.md"]
+	FilePaths []string `json:"filePaths,omitempty"`
+
+	// ディレクトリを指定した場合、そのディレクトリ内の全てのmdファイルが対象
+	// 例: "docs/"
+	Directory string `json:"directory,omitempty"`
+
+	// 除外パターン: 正規表現でmdファイルを除外可能にする
+	// 例: ["^docs/ignore_.*\\.md$", ".*draft\\.md$"]
+	ExcludePatterns []string `json:"excludePatterns,omitempty"`
+
+	// ポーリング間隔(秒)
+	IntervalSeconds int `json:"intervalSeconds,omitempty"`
 }
 
 // DocumentsStatus defines the observed state of Documents
 type DocumentsStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	// ファイルパス (リポジトリ基準パス)
+	FilePath string `json:"filePath,omitempty"`
+	// 最終確認時のSHAハッシュ
+	LastKnownSha string `json:"lastKnownSha,omitempty"`
+}
+
+type AllDocumentsStatus struct {
+	// 複数ファイル分のSHAを記録する
+	Documents []DocumentsStatus `json:"Documents,omitempty"`
 }
 
 // +kubebuilder:object:root=true

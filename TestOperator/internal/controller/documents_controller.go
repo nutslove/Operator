@@ -18,7 +18,12 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"strings"
 
+	"github.com/google/go-github/github"
+	"golang.org/x/oauth2"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,7 +56,41 @@ func (r *DocumentsReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// TODO(user): your logic here
 
-	return ctrl.Result{}, nil
+	var gfw examplev1alpha1.GitFileWatcher
+	if err := r.Get(ctx, req.NamespacedName, &gfw); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// GitHubファイルのSHA取得 (GitHub Personal Access Tokenが必要な場合はSecret参照)
+	currentSha, err := fetchGitHubFileSha(gfw.Spec.Repo, gfw.Spec.Branch, gfw.Spec.FilePath)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if gfw.Status.LastKnownSha == "" {
+		// 初回記録
+		gfw.Status.LastKnownSha = currentSha
+		if err := r.Status().Update(ctx, &gfw); err != nil {
+			return ctrl.Result{}, err
+		}
+	} else if gfw.Status.LastKnownSha != currentSha {
+		// SHAが変わった場合、Python実行Jobを作成
+		err = r.createPythonJob(ctx, &gfw)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		// Status更新
+		gfw.Status.LastKnownSha = currentSha
+		if err := r.Status().Update(ctx, &gfw); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// 次回チェックまで待機
+	return ctrl.Result{RequeueAfter: time.Duration(gfw.Spec.IntervalSeconds) * time.Second}, nil
+
+	// return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -59,4 +98,51 @@ func (r *DocumentsReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&ragv1alpha1.Documents{}).
 		Complete(r)
+}
+
+// fetchGitHubFileSha はGitHubリポジトリ内の特定ファイルのSHAを取得する関数です。
+// owner: GitHubリポジトリのオーナー名（例: "octocat"）
+// repo: リポジトリ名（例: "Hello-World"）
+// branch: 取得するブランチ（例: "main"）
+// filePath: ファイルパス（例: "docs/example.md"）
+// token: GitHub Personal Access Token（パブリックリポジトリで読み取りのみであれば不要な場合もありますが、
+//        制限があるためトークンを用いておくことを推奨）
+// 戻り値: ファイルのSHA文字列とエラー
+func fetchGitHubFileSha(owner, repo, branch, filePath, token string) (string, error) {
+	ctx := context.Background()
+
+	var tc *http.Client
+	if token != "" {
+		ts := oauth2.StaticTokenSource(
+			&oauth2.Token{AccessToken: token},
+		)
+		tc = oauth2.NewClient(ctx, ts)
+	} else {
+		// トークンなしクライアント（レートリミットやプライベートリポジトリへのアクセスに制限あり）
+		tc = http.DefaultClient
+	}
+
+	client := github.NewClient(tc)
+
+	// GitHub APIでファイルコンテンツを取得
+	fileContent, _, resp, err := client.Repositories.GetContents(ctx, owner, repo, filePath, &github.RepositoryContentGetOptions{Ref: branch})
+	if err != nil {
+		return "", fmt.Errorf("failed to get file contents from GitHub: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status code from GitHub API: %d", resp.StatusCode)
+	}
+
+	if fileContent == nil {
+		return "", fmt.Errorf("file not found at path: %s", filePath)
+	}
+
+	// GetSHA()でファイルのSHAを取得可能
+	sha := fileContent.GetSHA()
+	if strings.TrimSpace(sha) == "" {
+		return "", fmt.Errorf("no SHA found for file: %s", filePath)
+	}
+
+	return sha, nil
 }

@@ -1,4 +1,0 @@
-## Append samples of your project ##
-resources:
-- rag_v1alpha1_documents.yaml
-# +kubebuilder:scaffold:manifestskustomizesamples

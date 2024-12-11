@@ -33,6 +33,8 @@ type DocumentsSpec struct {
 	// 監視対象のブランチ(デフォルト: main等)
 	Branch string `json:"branch,omitempty"`
 
+	FilePath string `json:"filePath,omitempty"`
+
 	// 複数の特定ファイルを監視したい場合はここで指定
 	// 例: ["docs/file1.md", "docs/file2.md"]
 	FilePaths []string `json:"filePaths,omitempty"`

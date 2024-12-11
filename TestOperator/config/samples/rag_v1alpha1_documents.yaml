@@ -7,3 +7,7 @@ metadata:
   name: documents-sample
 spec:
   # TODO(user): Add fields here
+  repo: "Operator"
+  branch: "main"
+  filePath: "README.md"
+  intervalSeconds: 10

@@ -20,7 +20,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/google/go-github/github"
 	"golang.org/x/oauth2"
@@ -56,39 +58,40 @@ func (r *DocumentsReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// TODO(user): your logic here
 
-	var gfw examplev1alpha1.GitFileWatcher
-	if err := r.Get(ctx, req.NamespacedName, &gfw); err != nil {
+	var doc ragv1alpha1.Documents
+	if err := r.Get(ctx, req.NamespacedName, &doc); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// GitHubファイルのSHA取得 (GitHub Personal Access Tokenが必要な場合はSecret参照)
-	currentSha, err := fetchGitHubFileSha(gfw.Spec.Repo, gfw.Spec.Branch, gfw.Spec.FilePath)
+	currentSha, err := fetchGitHubFileSha("nutslove", doc.Spec.Repo, doc.Spec.Branch, doc.Spec.FilePath, os.Getenv("GITHUB_TOKEN"))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if gfw.Status.LastKnownSha == "" {
+	if doc.Status.LastKnownSha == "" {
 		// 初回記録
-		gfw.Status.LastKnownSha = currentSha
-		if err := r.Status().Update(ctx, &gfw); err != nil {
+		doc.Status.LastKnownSha = currentSha
+		if err := r.Status().Update(ctx, &doc); err != nil {
 			return ctrl.Result{}, err
 		}
-	} else if gfw.Status.LastKnownSha != currentSha {
-		// SHAが変わった場合、Python実行Jobを作成
-		err = r.createPythonJob(ctx, &gfw)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
+	} else if doc.Status.LastKnownSha != currentSha {
+		// // SHAが変わった場合、Python実行Jobを作成
+		// err = r.createPythonJob(ctx, &doc)
+		// if err != nil {
+		// 	return ctrl.Result{}, err
+		// }
+		fmt.Println("Sha of Document has been changed.")
 
 		// Status更新
-		gfw.Status.LastKnownSha = currentSha
-		if err := r.Status().Update(ctx, &gfw); err != nil {
+		doc.Status.LastKnownSha = currentSha
+		if err := r.Status().Update(ctx, &doc); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
 	// 次回チェックまで待機
-	return ctrl.Result{RequeueAfter: time.Duration(gfw.Spec.IntervalSeconds) * time.Second}, nil
+	return ctrl.Result{RequeueAfter: time.Duration(doc.Spec.IntervalSeconds) * time.Second}, nil
 
 	// return ctrl.Result{}, nil
 }
@@ -106,7 +109,9 @@ func (r *DocumentsReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // branch: 取得するブランチ（例: "main"）
 // filePath: ファイルパス（例: "docs/example.md"）
 // token: GitHub Personal Access Token（パブリックリポジトリで読み取りのみであれば不要な場合もありますが、
-//        制限があるためトークンを用いておくことを推奨）
+//
+//	制限があるためトークンを用いておくことを推奨）
+//
 // 戻り値: ファイルのSHA文字列とエラー
 func fetchGitHubFileSha(owner, repo, branch, filePath, token string) (string, error) {
 	ctx := context.Background()
